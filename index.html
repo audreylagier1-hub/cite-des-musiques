@@ -704,14 +704,15 @@ function renderTB(){
       const today2=new Date().toISOString().split('T')[0].substring(0,7);
       const future=mois>today2;
       let statut='',col2='';
-      if(future){statut='';col2='var(--txl)';}
+      // Un mois à venir déjà payé (d'après le libellé) s'affiche comme réglé
+      if(future&&!(montantPaye>0)){statut='';col2='var(--txl)';}
       else if(montantPaye>=prixDu&&prixDu>0){statut='✓ Réglé';col2='#166534';}
       else if(montantPaye>0&&montantPaye<prixDu){statut='Partiel';col2='#B45309';}
       else if(prixDu>0){statut='Non réglé';col2='#DC2626';}
       return'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--cr2);">'+
       '<span style="font-size:12px;font-weight:500;min-width:70px;color:var(--bx3);">'+label+'</span>'+
       '<span style="font-size:11px;color:var(--txm);flex:1;">'+(prixDu>0?'Dû : '+prixDu+' €'+(montantPaye>0?' | Payé : '+montantPaye+' €':'')+(reste>0&&!future?' | <b style="color:'+col2+';">Reste : '+reste+' €</b>':''):'—')+'</span>'+
-      (future?'<span style="font-size:10px;color:var(--txl);padding:2px 7px;border-radius:9px;background:var(--cr2);">À venir</span>':
+      (future&&!(montantPaye>0)?'<span style="font-size:10px;color:var(--txl);padding:2px 7px;border-radius:9px;background:var(--cr2);">À venir</span>':
        prixDu>0?'<span style="font-size:10px;font-weight:500;color:'+col2+';padding:2px 7px;border-radius:9px;background:'+(montantPaye>=prixDu?'#DCFCE7':montantPaye>0?'#FEF9C3':'#FEF2F2')+' ;">'+statut+'</span>':'<span style="font-size:10px;color:var(--txl);padding:2px 7px;border-radius:9px;background:var(--cr2);">—</span>')+
       '</div>';
     }).join('')})()+
