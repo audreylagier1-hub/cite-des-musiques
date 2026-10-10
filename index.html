@@ -264,6 +264,45 @@ const avc=id=>{const k=Object.keys(DB).sort((a,b)=>(DB[a].nom||'').localeCompare
 const fd=d=>{if(!d)return'';const[y,m,j]=d.split('-');return j+'/'+m+'/'+y;};
 const mi=d=>d?parseInt(d.substring(5,7))-1:0;
 const mk=d=>d?d.substring(0,7):'';
+// ── Mois couvert par un règlement ──
+// C'est le LIBELLÉ qui fait foi (ex : "Novembre", "Nov 2026", "Cotisation décembre"),
+// et non la date de réception du règlement. À défaut de mois lisible dans le libellé :
+// mois_couvert enregistré, puis mois de la date de réception.
+const normTxt=t=>(t||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const MN_N=MN.map(normTxt),MS_N=MS.map(normTxt);
+const idxMoisMot=w=>{
+  if(!w||w.length<3)return -1;
+  let i=MN_N.indexOf(w);if(i>=0)return i;
+  i=MS_N.indexOf(w);if(i>=0)return i;
+  const c=MN_N.map((n,k)=>n.startsWith(w)?k:-1).filter(k=>k>=0); // ex: "sept", "janv", "dec"
+  return c.length===1?c[0]:-1;
+};
+function moisDuLibelle(label,dateRef){
+  const mots=normTxt(label).split(/[^a-z0-9]+/).filter(Boolean);
+  for(let k=0;k<mots.length;k++){
+    const idx=idxMoisMot(mots[k]);
+    if(idx<0)continue;
+    const lbMo=idx+1;
+    let yr;
+    if(/^\d{4}$/.test(mots[k+1]||''))yr=parseInt(mots[k+1]);
+    else if(dateRef){
+      // Année déduite de la date de réception (règlement en avance ou en retard, à ±6 mois)
+      const payYear=parseInt(dateRef.substring(0,4)),payMo=parseInt(dateRef.substring(5,7));
+      yr=payYear;
+      if(lbMo<payMo&&(payMo-lbMo)>6)yr=payYear+1;
+      if(lbMo>payMo&&(lbMo-payMo)>6)yr=payYear-1;
+    } else {
+      const am=ANNEE_MOIS.find(m=>parseInt(m.substring(5,7))===lbMo);
+      if(!am)return null;
+      yr=parseInt(am.substring(0,4));
+    }
+    return yr+'-'+(lbMo<10?'0':'')+lbMo;
+  }
+  return null;
+}
+const moisDuPaiement=p=>moisDuLibelle(p.label,p.date)||p.mois_couvert||mk(p.date);
+// Règlements comptant pour les cotisations mensuelles (les "autres" ne comptent que si leur libellé nomme un mois)
+const estPaiementMensuel=p=>p.type!=='inscription'&&p.type!=='forfait'&&(p.type!=='autre'||!!moisDuLibelle(p.label,p.date));
 let showInactifs=false;
 const sorted=()=>Object.entries(DB).filter(([,s])=>showInactifs?s.inactif:!s.inactif).sort(([,a],[,b])=>(a.prenom||'').localeCompare(b.prenom||'')||(a.nom||'').localeCompare(b.nom||''));
 function toast(msg,w=false){const t=document.getElementById('toast');t.innerHTML=(w?'<i class="ti ti-alert-triangle"></i>':'<i class="ti ti-check"></i>')+' '+msg;t.className='toast'+(w?' warn':'');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
@@ -310,7 +349,7 @@ function getMontantDuMois(s,moisKey){
 // Répartition en cascade : l'excédent d'un mois couvre le(s) mois suivant(s)
 // Retourne un objet { 'YYYY-MM': { du, paye, reste } } pour tous les mois de l'année
 function getSoldesMois(s){
-  const pays=(s.paiements||[]).filter(p=>p.type!=='inscription'&&p.type!=='forfait');
+  const pays=(s.paiements||[]).filter(estPaiementMensuel);
   // Convertir chaque paiement en montant disponible (non encore affecté)
   // On trie les paiements par date croissante pour affecter chronologiquement
   const pool=pays.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
@@ -319,11 +358,8 @@ function getSoldesMois(s){
   for(const mois of ANNEE_MOIS){
     const du=getMontantDuMois(s,mois);
     if(du<=0){result[mois]={du:0,paye:0,reste:0};continue;}
-    const [y,mo]=mois.split('-');
-    const mn=parseInt(mo)-1;
-    const labelsMois=[MN[mn],MS[mn],MN[mn]+' '+y,MS[mn]+' '+y];
-    // Paiements explicitement liés à ce mois (par date ou libellé)
-    const paiesMois=pool.filter(p=>mk(p.date)===mois||labelsMois.some(l=>p.label&&p.label.toLowerCase().startsWith(l.toLowerCase())));
+    // Paiements liés à ce mois : d'après le libellé (et non la date de réception)
+    const paiesMois=pool.filter(p=>moisDuPaiement(p)===mois);
     const directPaye=paiesMois.reduce((a,p)=>a+p.montant,0);
     // Total disponible pour ce mois = paiements directs + report
     const totalDispo=directPaye+soldeReport;
@@ -679,14 +715,16 @@ function renderTB(){
        prixDu>0?'<span style="font-size:10px;font-weight:500;color:'+col2+';padding:2px 7px;border-radius:9px;background:'+(montantPaye>=prixDu?'#DCFCE7':montantPaye>0?'#FEF9C3':'#FEF2F2')+' ;">'+statut+'</span>':'<span style="font-size:10px;color:var(--txl);padding:2px 7px;border-radius:9px;background:var(--cr2);">—</span>')+
       '</div>';
     }).join('')})()+
-    (pays.filter(p=>p.type!=='inscription'&&p.type!=='forfait').length?
+    (pays.filter(estPaiementMensuel).length?
     '<div class="sl2" style="margin-top:12px;">Règlements enregistrés</div>'+
-    pays.filter(p=>p.type!=='inscription'&&p.type!=='forfait').slice().reverse().map((p,ri)=>{
-      const allAbo=pays.filter(pp=>pp.type!=='inscription'&&pp.type!=='forfait');
+    pays.filter(estPaiementMensuel).slice().reverse().map((p,ri)=>{
+      const allAbo=pays.filter(estPaiementMensuel);
+      const mc=moisDuPaiement(p);
+      const moisTxt=mc?'<span style="font-size:10px;color:var(--bx);margin-left:4px;">→ '+MS[parseInt(mc.substring(5,7))-1]+' '+mc.substring(0,4)+'</span>':'';
       const origIdx=pays.indexOf(allAbo[allAbo.length-1-ri]);
       const bm=p.mode==='CB'?'bc':p.mode==='Espèces'?'be':p.mode==='Virement'||p.mode==='Prélèvement'?'bv':'bq';
       const tireurTxt=(p.tireur||p.titulaire)?'<span style="font-size:10px;color:var(--txl);margin-left:4px;">'+(p.tireur?'✎ '+p.tireur:p.titulaire?'↔ '+p.titulaire:'')+'</span>':'';
-      return'<div class="payr"><div class="mdot" style="background:'+MC[mi(p.date)]+'"></div><span style="font-size:12px;font-weight:500;color:var(--bx3);min-width:78px;">'+fd(p.date)+'</span><span style="font-size:12px;color:var(--txm);flex:1;">'+p.label+tireurTxt+'</span><span class="badge '+bm+'">'+p.mode+'</span><span style="font-weight:500;font-size:13px;color:var(--bx3);min-width:55px;text-align:right;">'+p.montant+' €</span><button class="btn btn-sm btn-del" onclick="rmPay('+origIdx+')" style="margin-left:3px;"><i class="ti ti-x"></i></button></div>';
+      return'<div class="payr"><div class="mdot" style="background:'+MC[mi(p.date)]+'"></div><span style="font-size:12px;font-weight:500;color:var(--bx3);min-width:78px;">'+fd(p.date)+'</span><span style="font-size:12px;color:var(--txm);flex:1;">'+p.label+moisTxt+tireurTxt+'</span><span class="badge '+bm+'">'+p.mode+'</span><span style="font-weight:500;font-size:13px;color:var(--bx3);min-width:55px;text-align:right;">'+p.montant+' €</span><button class="btn btn-sm btn-del" onclick="rmPay('+origIdx+')" style="margin-left:3px;"><i class="ti ti-x"></i></button></div>';
     }).join(''):'')+'<hr class="sep">'+
     (()=>{
       const today3=new Date().toISOString().split('T')[0];
@@ -694,7 +732,7 @@ function renderTB(){
       const montSug=getMontantDuMois(s,moisDef);
       return '<div class="sl2">Enregistrer un paiement mensuel</div>'+
       '<div class="r2" style="gap:8px;"><div class="field"><label>Date</label><input type="date" id="pabd" value="'+today3+'" onchange="updAboMontant()"></div><div class="field"><label>Mode</label><select id="pabm" onchange="togTireur(\u0027pabx\u0027,this.value)">'+MODES.map(m=>'<option>'+m+'</option>').join('')+'</select></div></div>'+
-      '<div class="r2" style="gap:8px;margin-top:6px;"><div class="field"><label>Libellé</label><input id="pabl" value="'+MN[parseInt(moisDef.substring(5,7))-1]+'"></div><div class="field"><label>Montant (€)</label><input type="number" id="pabmont" value="'+montSug+'" min="0" step="0.01" style="font-weight:500;color:var(--bx3);"></div></div>'+
+      '<div class="r2" style="gap:8px;margin-top:6px;"><div class="field"><label>Libellé (mois réglé)</label><input id="pabl" value="'+MN[parseInt(moisDef.substring(5,7))-1]+'" oninput="updAboMontant()"></div><div class="field"><label>Montant (€)</label><input type="number" id="pabmont" value="'+montSug+'" min="0" step="0.01" style="font-weight:500;color:var(--bx3);"></div></div>'+
       '<div id="pabx" style="display:none;margin-top:6px;"><div class="field"><label id="pabx-lbl">Nom du tireur</label><input id="pabt" placeholder="Nom Prénom"></div></div>'+
       '<div style="font-size:11px;color:var(--txm);margin:4px 0 8px;"><i class="ti ti-info-circle"></i> Montant calculé automatiquement — modifiable si besoin.</div>'+
       '<button class="btn btn-p btn-sm" onclick="addAbonnement()"><i class="ti ti-plus"></i> Enregistrer</button>';
@@ -790,11 +828,10 @@ function renderAttestation(tb){
 
   // Abonnements impayés
   if(aboCreneaux.length>0){
+    const soldes=getSoldesMois(s);
     for(const mois of moisPasses){
-      const prixDu=getMontantDuMois(s,mois);
+      const {du:prixDu,paye:montantPaye,reste}=soldes[mois]||{du:0,paye:0,reste:0};
       if(prixDu<=0)continue;
-      const montantPaye=pays.filter(p=>p.type==='abonnement'&&(p.mois_couvert||mk(p.date))===mois).reduce((a,p)=>a+p.montant,0);
-      const reste=prixDu-montantPaye;
       const [y2,mo2]=mois.split('-');
       const labelMois=MN[parseInt(mo2)-1]+' '+y2;
       if(montantPaye>=prixDu){
@@ -1110,9 +1147,9 @@ window.updAboMontant=()=>{
   const montEl=document.getElementById('pabmont');
   const lbEl=document.getElementById('pabl');
   if(!dateEl||!montEl)return;
-  const mois=dateEl.value.substring(0,7);
+  // Montant suggéré pour le mois indiqué dans le libellé (la date de réception n'est qu'un repli)
+  const mois=moisDuLibelle(lbEl?lbEl.value:'',dateEl.value)||mk(dateEl.value);
   montEl.value=getMontantDuMois(DB[cid],mois);
-  if(lbEl)lbEl.value=MN[parseInt(mois.substring(5,7))-1];
 };
 window.togTireur=(divId,mode)=>{
   const div=document.getElementById(divId);if(!div)return;
@@ -1130,22 +1167,8 @@ window.addAbonnement=()=>{
   if(!d||isNaN(m)||m<0)return;
   const s=DB[cid];if(!s)return;
   if(!s.paiements)s.paiements=[];
-  // Dériver mois_couvert depuis le libellé (ex: "Novembre" -> année du paiement ou suivante si nécessaire)
-  let mois_couvert=mk(d);
-  const lbTrim=(lb||'').trim();
-  const lbIdx=MN.indexOf(lbTrim);
-  if(lbIdx>=0){
-    const payYear=parseInt(d.substring(0,4));
-    const payMo=parseInt(d.substring(5,7));
-    // Mois du libellé (1-12)
-    const lbMo=lbIdx+1;
-    // Si le libellé correspond au mois suivant (ou plus loin dans l'année scolaire)
-    // On garde la même année sauf si on est en juillet/août (décalage d'année scolaire)
-    let yr=payYear;
-    if(lbMo<payMo && (payMo-lbMo)>6) yr=payYear+1; // ex: paiement en juin pour septembre an+1
-    if(lbMo>payMo && (lbMo-payMo)>6) yr=payYear-1; // cas inverse rare
-    mois_couvert=yr+'-'+(lbMo<10?'0':'')+lbMo;
-  }
+  // Le mois couvert est déduit du libellé (ex: "Novembre"), pas de la date de réception
+  const mois_couvert=moisDuLibelle(lb,d)||mk(d);
   const p={date:d,montant:m,mode:mo,label:lb,mois_couvert:mois_couvert,type:'abonnement'};
   if(tireur)(mo==='Virement'?p.titulaire=tireur:p.tireur=tireur);
   s.paiements.push(p);
