@@ -319,6 +319,14 @@ function isForfaitCreneau(typeCreneau){
 function hasForColl(s){return(s.creneaux||[]).some(c=>c.type_creneau==='Forfait Collectif');}
 function hasForIndiv(s){return(s.creneaux||[]).some(c=>c.type_creneau==='Forfait Individuel');}
 
+// Statut des frais d'inscription : si aucun statut n'est coché mais qu'un règlement d'inscription existe, c'est réglé
+function inscStatut(s){
+  const st=s.inscription_status;
+  if(st==='paid'||st==='offert')return st;
+  const ins=(s.paiements||[]).find(p=>p.type==='inscription');
+  if(ins)return Number(ins.montant)>0?'paid':'offert';
+  return 'unpaid';
+}
 function getMontantDuMois(s,moisKey){
   const creneaux=s.creneaux||[];
   const aboCreneaux=creneaux.filter(c=>{
@@ -330,6 +338,11 @@ function getMontantDuMois(s,moisKey){
     const dfNorm=dy+'-'+(dm||'').padStart(2,'0'); // → toujours "YYYY-MM"
     if(moisKey<dfNorm)return true; // moisKey avant l'arrêt → actif
     return false; // moisKey >= date_fin → créneau arrêté
+  }).filter(c=>{
+    // Rien n'est dû avant le mois d'inscription
+    if(!c.premier_mois)return true;
+    const [py,pm]=c.premier_mois.substring(0,7).split('-');
+    return moisKey>=py+'-'+(pm||'').padStart(2,'0');
   });
   if(!aboCreneaux.length)return 0;
   let total=0;
@@ -360,7 +373,7 @@ function getSoldesMois(s){
     if(du<=0){result[mois]={du:0,paye:0,reste:0};continue;}
     // Paiements liés à ce mois : d'après le libellé (et non la date de réception)
     const paiesMois=pool.filter(p=>moisDuPaiement(p)===mois);
-    const directPaye=paiesMois.reduce((a,p)=>a+p.montant,0);
+    const directPaye=paiesMois.reduce((a,p)=>a+(Number(p.montant)||0),0);
     // Total disponible pour ce mois = paiements directs + report
     const totalDispo=directPaye+soldeReport;
     const paye=Math.min(totalDispo,du); // on ne peut pas payer plus que ce qui est dû
@@ -387,7 +400,7 @@ function getImpayes(){
       for(const mois of moisPasses){
         const {du:prixDu,paye:montantPaye,reste}=soldes[mois]||{du:0,paye:0,reste:0};
         if(prixDu<=0)continue;
-        if(reste>0) moisImpayes.push({mois,prixDu,montantPaye,reste});
+        if(reste>=0.01) moisImpayes.push({mois,prixDu,montantPaye,reste});
       }
     }
 
@@ -410,7 +423,7 @@ function getImpayes(){
       for(let i=0;i<impFI;i++) forfaitImpayes.push({tranche:fpI+i+1,prix:TARIF_FORFAIT.Individuel,typeBase:'Individuel'});
     }
 
-    const hi=(s.inscription_status||'unpaid')==='unpaid';
+    const hi=inscStatut(s)==='unpaid';
     return{id,s,moisImpayes,forfaitImpayes,hi};
   }).filter(x=>x.moisImpayes.length>0||x.forfaitImpayes.length>0||x.hi);
 }
@@ -684,7 +697,7 @@ function renderTB(){
     const forfCreneaux2I=(s.creneaux||[]).filter(c=>c.type_creneau==='Forfait Individuel');
     const tousLesEncaissements=pays.filter(p=>p.type!=='inscription').reduce((a,p)=>a+p.montant,0);
     const tI=pays.filter(p=>p.type==='inscription').reduce((a,p)=>a+p.montant,0);
-    const ins=s.inscription_status||'unpaid';
+    const ins=inscStatut(s);
     const imp=getImpayes().find(x=>x.id===cid);
     const nImp=imp?(imp.moisImpayes.length+imp.forfaitImpayes.length+(imp.hi?1:0)):0;
     tb.innerHTML=
@@ -815,7 +828,7 @@ function renderAttestation(tb){
   // Calcul des sommes dues
   const moisPasses=ANNEE_MOIS.filter(m=>m<=today.substring(0,7));
   const aboCreneaux=creneaux.filter(c=>!isForfaitCreneau(c.type_creneau));
-  const inscStatus=s.inscription_status||'unpaid';
+  const inscStatus=inscStatut(s);
   const inscPayee=inscStatus==='paid'||inscStatus==='offert';
   const inscOffert=inscStatus==='offert';
 
