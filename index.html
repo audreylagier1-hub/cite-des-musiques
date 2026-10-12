@@ -330,6 +330,27 @@ function inscStatut(s){
 // Tarifs d'un créneau d'abonnement : prix d'un cours = tarif mensuel ÷ 4 (fratrie comprise : 65 € → 16,25 €)
 function tarifMensuelCreneau(c){const tb=getTypeBase(c.type_creneau);return(c.fratrie?TARIF_ABO_FRATRIE[tb]:TARIF_ABO[tb])||70;}
 function tarifCoursCreneau(c){return tarifMensuelCreneau(c)/4;}
+// Mois de début d'un créneau : date de début, sinon "Mois d'inscription" saisi auparavant
+function moisDebutCreneau(c){
+  const d=c.date_debut||c.premier_mois||'';
+  if(!d)return '';
+  const [y,m]=d.substring(0,7).split('-');return y+'-'+(m||'').padStart(2,'0');
+}
+// Nb de cours du 1er mois : nombre saisi à la main, sinon compté depuis la date de début
+// (jours du créneau, ex. les samedis, jusqu'à la fin du mois ; 4 maximum)
+function nbCoursAuto(c){
+  if(!c.date_debut)return null;
+  const ji=JOURS.indexOf(c.jour);if(ji<0)return null;
+  const dow=(ji+1)%7; // Lundi=1 … Dimanche=0
+  const d=new Date(c.date_debut+'T12:00:00');if(isNaN(d))return null;
+  const mo=d.getMonth();let n=0;
+  while(d.getMonth()===mo){if(d.getDay()===dow)n++;d.setDate(d.getDate()+1);}
+  return Math.min(n,4);
+}
+function nbCoursPremierMois(c){
+  if(c.nb_cours_premier_mois!=null&&c.nb_cours_premier_mois!==''&&!isNaN(c.nb_cours_premier_mois))return Number(c.nb_cours_premier_mois);
+  return nbCoursAuto(c);
+}
 function getMontantDuMois(s,moisKey){
   const creneaux=s.creneaux||[];
   const aboCreneaux=creneaux.filter(c=>{
@@ -343,17 +364,17 @@ function getMontantDuMois(s,moisKey){
     return false; // moisKey >= date_fin → créneau arrêté
   }).filter(c=>{
     // Rien n'est dû avant le mois d'inscription
-    if(!c.premier_mois)return true;
-    const [py,pm]=c.premier_mois.substring(0,7).split('-');
-    return moisKey>=py+'-'+(pm||'').padStart(2,'0');
+    const md=moisDebutCreneau(c);
+    return !md||moisKey>=md;
   });
   if(!aboCreneaux.length)return 0;
   let total=0;
   for(const c of aboCreneaux){
     const tarifMensuel=tarifMensuelCreneau(c);
     const tarifCours=tarifCoursCreneau(c);
-    if(c.premier_mois&&c.premier_mois===moisKey&&c.nb_cours_premier_mois!=null){
-      total+=Math.round(c.nb_cours_premier_mois*tarifCours*100)/100;
+    const nbPM=nbCoursPremierMois(c);
+    if(moisDebutCreneau(c)===moisKey&&nbPM!=null){
+      total+=Math.round(nbPM*tarifCours*100)/100;
     } else {
       total+=tarifMensuel;
     }
@@ -577,8 +598,10 @@ function renderTB(){
       const typeBase2=getTypeBase(tc2);
       const isForf=isForfaitCreneau(tc2);
       const tarifLabel=isForf?(TARIF_FORFAIT[typeBase2]||75)+' €/forfait (4 cours)':((c.fratrie?TARIF_ABO_FRATRIE[typeBase2]:TARIF_ABO[typeBase2])||70)+' €/mois'+(c.fratrie?' 💜':'');
-      const premMois=c.premier_mois||'';
-      const nbCoursPM=c.nb_cours_premier_mois!=null?c.nb_cours_premier_mois:'';
+      const nbManuel=c.nb_cours_premier_mois!=null&&c.nb_cours_premier_mois!==''?c.nb_cours_premier_mois:'';
+      const nbAuto=nbCoursAuto(c);
+      const nbCoursPM=nbManuel!==''?nbManuel:(nbAuto!=null?nbAuto:'');
+      const ancienMois=!c.date_debut&&c.premier_mois?'<div style="font-size:10px;color:#795548;margin-top:2px;">Mois saisi : '+fd(c.premier_mois.substring(0,7)+'-01').substring(3)+'</div>':'';
       const tarifCours2=tarifCoursCreneau(c);
       const prorataCalc=nbCoursPM!==''?(Math.round(nbCoursPM*tarifCours2*100)/100)+' € ('+nbCoursPM+' × '+tarifCours2+' €)':'—';
       return'<div class="cren-row" style="background:var(--cr);border:1px solid var(--cr2);border-radius:var(--rad2);padding:10px 12px;margin-bottom:8px;">'+
@@ -595,10 +618,10 @@ function renderTB(){
       '<span style="font-size:11px;color:var(--txm);background:var(--cr2);padding:3px 8px;border-radius:9px;">'+tarifLabel+'</span>'+
       (!isForf?'<button class="btn btn-sm" onclick="togFratrie('+i+')" style="'+(c.fratrie?'background:#1E40AF;color:#fff;border-color:#1E40AF;':'')+'"><i class="ti ti-heart-handshake"></i> '+(c.fratrie?'Fratrie 65€':'Plein tarif')+'</button>':'')+
       '</div>'+
-      (!isForf?'<div style="margin-top:8px;background:#FFF9C4;border:1px solid #F9A825;border-radius:var(--rad3);padding:8px 10px;"><div style="font-size:11px;font-weight:500;color:#795548;margin-bottom:6px;">⚡ Prorata premier mois (optionnel)</div>'+
+      (!isForf?'<div style="margin-top:8px;background:#FFF9C4;border:1px solid #F9A825;border-radius:var(--rad3);padding:8px 10px;"><div style="font-size:11px;font-weight:500;color:#795548;margin-bottom:6px;">⚡ Début du créneau — prorata du 1er mois (optionnel)</div>'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">'+
-      '<div class="field" style="flex:1;min-width:110px;"><label style="font-size:10px;">Mois d\u0027inscription</label><input type="month" value="'+premMois+'" onchange="updC('+i+',\u0027premier_mois\u0027,this.value)" style="font-size:11px;"></div>'+
-      '<div class="field" style="width:90px;"><label style="font-size:10px;">Nb de cours</label><input type="number" value="'+nbCoursPM+'" min="1" max="4" placeholder="ex: 2" onchange="updCPM('+i+',this.value)" style="font-size:11px;"></div>'+
+      '<div class="field" style="flex:1;min-width:130px;"><label style="font-size:10px;">Date du 1er cours</label><input type="date" value="'+(c.date_debut||'')+'" onchange="updDebut('+i+',this.value)" style="font-size:11px;">'+ancienMois+'</div>'+
+      '<div class="field" style="width:90px;"><label style="font-size:10px;">Nb de cours'+(nbManuel===''&&nbAuto!=null?' (auto)':'')+'</label><input type="number" value="'+nbManuel+'" min="0" max="4" placeholder="'+(nbAuto!=null?nbAuto:'ex: 2')+'" onchange="updCPM('+i+',this.value)" style="font-size:11px;"></div>'+
       '<div style="font-size:12px;font-weight:500;color:var(--bx3);padding-bottom:6px;">= '+prorataCalc+'</div>'+
       '</div></div><div style="margin-top:8px;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:var(--rad3);padding:8px 10px;"><div style="font-size:11px;font-weight:500;color:#DC2626;margin-bottom:6px;"><i class="ti ti-calendar-x"></i> Arrêt (optionnel)</div>'+
       '<div style="display:flex;align-items:center;gap:8px;"><div class="field" style="flex:1;"><label style="font-size:10px;">Arrêt à partir de (1er mois non dû)</label><input type="month" value="'+(c.date_fin||'')+'" oninput="updC('+i+',\'date_fin\',this.value)" style="font-size:11px;"></div>'+
@@ -710,7 +733,7 @@ function renderTB(){
     // ── ABONNEMENTS MENSUELS ──
     (aboCreneaux.length?
     '<div class="blk"><div class="bh"><i class="ti ti-calendar-repeat" style="color:var(--bx);"></i><span class="bht">Abonnements mensuels</span>'+
-    '<span style="margin-left:auto;font-size:10px;color:var(--txm);">'+aboCreneaux.map(c=>{const tb2=getTypeBase(c.type_creneau);return'<span style="background:var(--bx);color:var(--cr);padding:1px 7px;border-radius:7px;margin-left:4px;">'+tb2+' '+TARIF_ABO[tb2]+'€</span>';}).join('')+'</span>'+
+    '<span style="margin-left:auto;font-size:10px;color:var(--txm);">'+aboCreneaux.map(c=>{const tb2=getTypeBase(c.type_creneau);return'<span style="background:var(--bx);color:var(--cr);padding:1px 7px;border-radius:7px;margin-left:4px;">'+tb2+' '+tarifMensuelCreneau(c)+'€'+(c.fratrie?' 💜':'')+(moisDebutCreneau(c)>ANNEE_MOIS[0]?' dès '+MS[parseInt(moisDebutCreneau(c).substring(5,7))-1]:'')+'</span>';}).join('')+'</span>'+
     '</div><div class="bb">'+
     (()=>{const _sol=getSoldesMois(s);return ANNEE_MOIS.map(mois=>{
       const {du:prixDu,paye:montantPaye,reste}=_sol[mois]||{du:0,paye:0,reste:0};
@@ -1140,7 +1163,9 @@ window.updP=(i,f,v)=>{const s=DB[cid];if(!s||!s.professeurs||!s.professeurs[i])r
 window.addC=()=>{const s=DB[cid];if(!s)return;if(!s.creneaux)s.creneaux=[];s.creneaux.push({jour:'Lundi',debut:'',fin:'',matiere:'',type_creneau:'Abonnement Collectif'});save(cid,s);renderTB();};
 window.rmC=i=>{const s=DB[cid];if(!s)return;(s.creneaux||[]).splice(i,1);save(cid,s);renderTB();};
 window.updC=(i,f,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;s.creneaux[i][f]=v;save(cid,s);renderTB();};
-window.updCPM=(i,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;s.creneaux[i].nb_cours_premier_mois=v===''?null:parseFloat(v);save(cid,s);renderTB();};
+// Date du 1er cours : le mois de début et le nombre de cours du 1er mois en découlent (nb recalculé automatiquement)
+window.updDebut=(i,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;const c=s.creneaux[i];c.date_debut=v||null;c.premier_mois=v?v.substring(0,7):null;c.nb_cours_premier_mois=null;save(cid,s);updImpayes();renderTB();};
+window.updCPM=(i,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;s.creneaux[i].nb_cours_premier_mois=v===''?null:parseFloat(v);save(cid,s);updImpayes();renderTB();};
 window.togP=i=>{const s=DB[cid];if(!s)return;const p=(s.presences||[])[i];if(!p)return;p.statut=p.statut==='present'?'absent':'present';save(cid,s);renderDetail(document.getElementById('mc'));};
 // togPF : bascule forfait_collectif ou forfait_individuel selon le type
 window.togPF=(i,type,v)=>{const s=DB[cid];if(!s)return;const p=(s.presences||[])[i];if(!p)return;if(type==='collectif')p.forfait_collectif=v;else p.forfait_individuel=v;save(cid,s);updImpayes();renderDetail(document.getElementById('mc'));};
