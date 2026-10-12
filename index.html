@@ -327,6 +327,9 @@ function inscStatut(s){
   if(ins)return Number(ins.montant)>0?'paid':'offert';
   return 'unpaid';
 }
+// Tarifs d'un créneau d'abonnement : prix d'un cours = tarif mensuel ÷ 4 (fratrie comprise : 65 € → 16,25 €)
+function tarifMensuelCreneau(c){const tb=getTypeBase(c.type_creneau);return(c.fratrie?TARIF_ABO_FRATRIE[tb]:TARIF_ABO[tb])||70;}
+function tarifCoursCreneau(c){return tarifMensuelCreneau(c)/4;}
 function getMontantDuMois(s,moisKey){
   const creneaux=s.creneaux||[];
   const aboCreneaux=creneaux.filter(c=>{
@@ -347,9 +350,8 @@ function getMontantDuMois(s,moisKey){
   if(!aboCreneaux.length)return 0;
   let total=0;
   for(const c of aboCreneaux){
-    const typeBase=getTypeBase(c.type_creneau);
-    const tarifMensuel=(c.fratrie?TARIF_ABO_FRATRIE[typeBase]:TARIF_ABO[typeBase])||70;
-    const tarifCours=(c.fratrie?(TARIF_ABO_FRATRIE[typeBase]||65)/4:TARIF_COURS[typeBase])||17.5;
+    const tarifMensuel=tarifMensuelCreneau(c);
+    const tarifCours=tarifCoursCreneau(c);
     if(c.premier_mois&&c.premier_mois===moisKey&&c.nb_cours_premier_mois!=null){
       total+=Math.round(c.nb_cours_premier_mois*tarifCours*100)/100;
     } else {
@@ -577,8 +579,8 @@ function renderTB(){
       const tarifLabel=isForf?(TARIF_FORFAIT[typeBase2]||75)+' €/forfait (4 cours)':((c.fratrie?TARIF_ABO_FRATRIE[typeBase2]:TARIF_ABO[typeBase2])||70)+' €/mois'+(c.fratrie?' 💜':'');
       const premMois=c.premier_mois||'';
       const nbCoursPM=c.nb_cours_premier_mois!=null?c.nb_cours_premier_mois:'';
-      const tarifCours2=TARIF_COURS[typeBase2]||17.5;
-      const prorataCalc=nbCoursPM!==''?(Math.round(nbCoursPM*tarifCours2*100)/100)+' €':'—';
+      const tarifCours2=tarifCoursCreneau(c);
+      const prorataCalc=nbCoursPM!==''?(Math.round(nbCoursPM*tarifCours2*100)/100)+' € ('+nbCoursPM+' × '+tarifCours2+' €)':'—';
       return'<div class="cren-row" style="background:var(--cr);border:1px solid var(--cr2);border-radius:var(--rad2);padding:10px 12px;margin-bottom:8px;">'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'+
       '<select style="min-width:90px;" onchange="updC('+i+',\u0027jour\u0027,this.value)">'+JOURS.map(j=>'<option'+(c.jour===j?' selected':'')+'>'+j+'</option>').join('')+'</select>'+
