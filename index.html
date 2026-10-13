@@ -516,7 +516,7 @@ function render(){
   if(cv==='impayes'){document.getElementById('n-imp').classList.add('act');tt.textContent='Impayés';ta.innerHTML='';renderImp(mc);}
   else if(cv==='stats'){document.getElementById('n-stats').classList.add('act');tt.textContent='Tableau de bord';ta.innerHTML='';renderStats(mc);}
   else if(cv==='detail'&&cid&&DB[cid]){tt.textContent=DB[cid].prenom+' '+DB[cid].nom;ta.innerHTML='<button class="btn btn-sm" onclick="exportVCF(\u0027'+cid+'\u0027)" ><i class="ti ti-address-book"></i> Contact</button><button class="btn btn-sm" onclick="openSMS(\u0027'+cid+'\u0027)" ><i class="ti ti-message"></i> SMS</button><button class="btn btn-del btn-sm" onclick="delStudent(\u0027'+cid+'\u0027)"><i class="ti ti-trash"></i> Supprimer</button>';renderDetail(mc);}
-  else{document.getElementById('n-liste').classList.add('act');tt.textContent='Liste des élèves';ta.innerHTML='<button class="btn btn-p btn-sm" onclick="openAdd()"><i class="ti ti-user-plus"></i> Nouvel élève</button><button class="btn btn-sm" onclick="showInactifs=!showInactifs;render()" style="'+(showInactifs?'background:#374151;color:#fff;border-color:#374151;':'')+'"><i class="ti ti-users-group"></i> '+(showInactifs?'Voir actifs':'Anciens élèves')+'</button>';renderListe(mc);}
+  else{document.getElementById('n-liste').classList.add('act');tt.textContent='Liste des élèves';ta.innerHTML='<button class="btn btn-p btn-sm" onclick="openAdd()"><i class="ti ti-user-plus"></i> Nouvel élève</button><button class="btn btn-sm" onclick="togInactifs()" style="'+(showInactifs?'background:#374151;color:#fff;border-color:#374151;':'')+'"><i class="ti ti-users-group"></i> '+(showInactifs?'Voir actifs':'Anciens élèves')+'</button>';renderListe(mc);}
 }
 
 function renderSB(){
@@ -1297,6 +1297,8 @@ function exportVCF(id){
   a.click();
   toast('Contact exporté !');
 }
+// Les boutons de la page (onclick="...") n'ont accès qu'aux fonctions attachées à window
+window.exportVCF=exportVCF;
 
 // ── SMS ──
 function getNums(s){
@@ -1322,6 +1324,12 @@ function openSMS(id){
     '<div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn btn-sm" onclick="closeM()">Fermer</button></div>';
   document.getElementById('mw').classList.add('op');
 }
+window.openSMS=openSMS;
+window.closeM=()=>document.getElementById('mw').classList.remove('op');
+// Fermer la fenêtre en cliquant à côté
+document.getElementById('mw').addEventListener('click',e=>{if(e.target.id==='mw')window.closeM();});
+window.render=render;
+window.togInactifs=()=>{showInactifs=!showInactifs;render();};
 
 // ── FRATRIE ──
 window.togFratrie=idx=>{
