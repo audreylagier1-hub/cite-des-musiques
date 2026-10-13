@@ -300,6 +300,15 @@ function moisDuLibelle(label,dateRef){
   }
   return null;
 }
+// Mois saisi sous n'importe quelle forme → "YYYY-MM" ("2026-09", "09/2026", "Septembre 2026", "sept"…).
+// Firefox n'a pas de sélecteur de mois : le mois peut avoir été tapé en texte.
+function normMois(v){
+  if(!v)return '';
+  const t=String(v).trim();
+  let m=t.match(/^(\d{4})-(\d{1,2})/);if(m)return m[1]+'-'+m[2].padStart(2,'0');
+  m=t.match(/^(\d{1,2})[\/.\-](\d{4})$/);if(m)return m[2]+'-'+m[1].padStart(2,'0');
+  return moisDuLibelle(t,null)||'';
+}
 const moisDuPaiement=p=>moisDuLibelle(p.label,p.date)||p.mois_couvert||mk(p.date);
 // Règlements comptant pour les cotisations mensuelles (les "autres" ne comptent que si leur libellé nomme un mois)
 const estPaiementMensuel=p=>p.type!=='inscription'&&p.type!=='forfait'&&(p.type!=='autre'||!!moisDuLibelle(p.label,p.date));
@@ -332,9 +341,8 @@ function tarifMensuelCreneau(c){const tb=getTypeBase(c.type_creneau);return(c.fr
 function tarifCoursCreneau(c){return tarifMensuelCreneau(c)/4;}
 // Mois de début d'un créneau : date de début, sinon "Mois d'inscription" saisi auparavant
 function moisDebutCreneau(c){
-  const d=c.date_debut||c.premier_mois||'';
-  if(!d)return '';
-  const [y,m]=d.substring(0,7).split('-');return y+'-'+(m||'').padStart(2,'0');
+  if(c.date_debut)return normMois(c.date_debut);
+  return normMois(c.premier_mois);
 }
 // Nb de cours du 1er mois : nombre saisi à la main, sinon compté depuis la date de début
 // (jours du créneau, ex. les samedis, jusqu'à la fin du mois ; 4 maximum)
@@ -356,10 +364,9 @@ function getMontantDuMois(s,moisKey){
   const aboCreneaux=creneaux.filter(c=>{
     if(isForfaitCreneau(c.type_creneau))return false;
     if(!c.date_fin)return true; // pas de date_fin → toujours actif
-    // Normaliser : extraire année et mois quelle que soit la forme stockée
-    const dfRaw=c.date_fin.substring(0,7); // "2026-09" ou "2026-9"
-    const [dy,dm]=dfRaw.split('-');
-    const dfNorm=dy+'-'+(dm||'').padStart(2,'0'); // → toujours "YYYY-MM"
+    // Normaliser : "YYYY-MM" quelle que soit la forme stockée (illisible → ignoré)
+    const dfNorm=normMois(c.date_fin);
+    if(!dfNorm)return true;
     if(moisKey<dfNorm)return true; // moisKey avant l'arrêt → actif
     return false; // moisKey >= date_fin → créneau arrêté
   }).filter(c=>{
@@ -601,7 +608,8 @@ function renderTB(){
       const nbManuel=c.nb_cours_premier_mois!=null&&c.nb_cours_premier_mois!==''?c.nb_cours_premier_mois:'';
       const nbAuto=nbCoursAuto(c);
       const nbCoursPM=nbManuel!==''?nbManuel:(nbAuto!=null?nbAuto:'');
-      const ancienMois=!c.date_debut&&c.premier_mois?'<div style="font-size:10px;color:#795548;margin-top:2px;">Mois saisi : '+fd(c.premier_mois.substring(0,7)+'-01').substring(3)+'</div>':'';
+      const pmN=!c.date_debut?normMois(c.premier_mois):'';
+      const ancienMois=pmN?'<div style="font-size:10px;color:#795548;margin-top:2px;">Mois d\u0027inscription saisi : '+MN[parseInt(pmN.substring(5,7))-1]+' '+pmN.substring(0,4)+'</div>':'';
       const tarifCours2=tarifCoursCreneau(c);
       const prorataCalc=nbCoursPM!==''?(Math.round(nbCoursPM*tarifCours2*100)/100)+' € ('+nbCoursPM+' × '+tarifCours2+' €)':'—';
       return'<div class="cren-row" style="background:var(--cr);border:1px solid var(--cr2);border-radius:var(--rad2);padding:10px 12px;margin-bottom:8px;">'+
@@ -624,7 +632,7 @@ function renderTB(){
       '<div class="field" style="width:90px;"><label style="font-size:10px;">Nb de cours'+(nbManuel===''&&nbAuto!=null?' (auto)':'')+'</label><input type="number" value="'+nbManuel+'" min="0" max="4" placeholder="'+(nbAuto!=null?nbAuto:'ex: 2')+'" onchange="updCPM('+i+',this.value)" style="font-size:11px;"></div>'+
       '<div style="font-size:12px;font-weight:500;color:var(--bx3);padding-bottom:6px;">= '+prorataCalc+'</div>'+
       '</div></div><div style="margin-top:8px;background:#FEE2E2;border:1px solid #FCA5A5;border-radius:var(--rad3);padding:8px 10px;"><div style="font-size:11px;font-weight:500;color:#DC2626;margin-bottom:6px;"><i class="ti ti-calendar-x"></i> Arrêt (optionnel)</div>'+
-      '<div style="display:flex;align-items:center;gap:8px;"><div class="field" style="flex:1;"><label style="font-size:10px;">Arrêt à partir de (1er mois non dû)</label><input type="month" value="'+(c.date_fin||'')+'" oninput="updC('+i+',\'date_fin\',this.value)" style="font-size:11px;"></div>'+
+      '<div style="display:flex;align-items:center;gap:8px;"><div class="field" style="flex:1;"><label style="font-size:10px;">Arrêt à partir de (1er mois non dû)</label><select onchange="updC('+i+',\'date_fin\',this.value)" style="font-size:11px;">'+(()=>{const df=normMois(c.date_fin);return'<option value="">— Aucun arrêt —</option>'+ANNEE_MOIS.slice(1).concat(['2027-07']).map(m=>'<option value="'+m+'"'+(m===df?' selected':'')+'>'+MN[parseInt(m.substring(5,7))-1]+' '+m.substring(0,4)+'</option>').join('');})()+'</select></div>'+
       '<div style="font-size:10px;color:var(--txm);padding-bottom:4px;">À partir du mois suivant, ce créneau n\'est plus compté.</div></div></div>':'')+'</div>';
     }).join(''):'<div style="font-size:12px;color:var(--txl);padding:4px 0 8px;">Aucun créneau.</div>')+
     '<button class="btn btn-sm" onclick="addC()"><i class="ti ti-plus"></i> Ajouter un créneau</button>'+
