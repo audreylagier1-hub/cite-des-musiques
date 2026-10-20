@@ -359,7 +359,13 @@ function nbCoursPremierMois(c){
   if(c.nb_cours_premier_mois!=null&&c.nb_cours_premier_mois!==''&&!isNaN(c.nb_cours_premier_mois))return Number(c.nb_cours_premier_mois);
   return nbCoursAuto(c);
 }
+// Montant dû d'un mois : montant saisi à la main sur la fiche s'il existe, sinon calcul automatique
 function getMontantDuMois(s,moisKey){
+  const m=s.du_manuel&&s.du_manuel[moisKey];
+  if(m!=null&&m!==''&&!isNaN(m))return Number(m);
+  return getMontantDuMoisAuto(s,moisKey);
+}
+function getMontantDuMoisAuto(s,moisKey){
   const creneaux=s.creneaux||[];
   const aboCreneaux=creneaux.filter(c=>{
     if(isForfaitCreneau(c.type_creneau))return false;
@@ -755,9 +761,14 @@ function renderTB(){
       else if(montantPaye>=prixDu&&prixDu>0){statut='✓ Réglé';col2='#166534';}
       else if(montantPaye>0&&montantPaye<prixDu){statut='Partiel';col2='#B45309';}
       else if(prixDu>0){statut='Non réglé';col2='#DC2626';}
+      const manuel=!!(s.du_manuel&&s.du_manuel[mois]!=null);
+      const duAuto=getMontantDuMoisAuto(s,mois);
+      // Montant dû modifiable à la main (vide ou ↺ = calcul automatique)
+      const duChamp='Dû : <input type="number" min="0" step="0.01" value="'+prixDu+'" title="Montant dû — modifiable" onchange="setDu(\u0027'+mois+'\u0027,this.value)" style="width:68px;font-size:11px;padding:1px 4px;'+(manuel?'border:1.5px solid #B45309;background:#FEF9C3;':'')+'"> €'+
+        (manuel?' <span style="font-size:10px;color:#B45309;">✎ modifié (auto : '+duAuto+' €)</span> <button class="btn btn-sm" title="Revenir au calcul automatique" onclick="setDu(\u0027'+mois+'\u0027,\u0027\u0027)" style="padding:0 6px;font-size:10px;">↺</button>':'');
       return'<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--cr2);">'+
       '<span style="font-size:12px;font-weight:500;min-width:70px;color:var(--bx3);">'+label+'</span>'+
-      '<span style="font-size:11px;color:var(--txm);flex:1;">'+(prixDu>0?'Dû : '+prixDu+' €'+(montantPaye>0?' | Payé : '+montantPaye+' €':'')+(reste>0&&!future?' | <b style="color:'+col2+';">Reste : '+reste+' €</b>':''):'—')+'</span>'+
+      '<span style="font-size:11px;color:var(--txm);flex:1;">'+((prixDu>0||manuel)?duChamp+(montantPaye>0?' | Payé : '+montantPaye+' €':'')+(reste>0&&!future?' | <b style="color:'+col2+';">Reste : '+reste+' €</b>':''):'—')+'</span>'+
       (future&&!(montantPaye>0)?'<span style="font-size:10px;color:var(--txl);padding:2px 7px;border-radius:9px;background:var(--cr2);">À venir</span>':
        prixDu>0?'<span style="font-size:10px;font-weight:500;color:'+col2+';padding:2px 7px;border-radius:9px;background:'+(montantPaye>=prixDu?'#DCFCE7':montantPaye>0?'#FEF9C3':'#FEF2F2')+' ;">'+statut+'</span>':'<span style="font-size:10px;color:var(--txl);padding:2px 7px;border-radius:9px;background:var(--cr2);">—</span>')+
       '</div>';
@@ -1172,6 +1183,11 @@ window.addC=()=>{const s=DB[cid];if(!s)return;if(!s.creneaux)s.creneaux=[];s.cre
 window.rmC=i=>{const s=DB[cid];if(!s)return;(s.creneaux||[]).splice(i,1);save(cid,s);renderTB();};
 window.updC=(i,f,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;s.creneaux[i][f]=v;save(cid,s);renderTB();};
 // Date du 1er cours : le mois de début et le nombre de cours du 1er mois en découlent (nb recalculé automatiquement)
+// Montant dû saisi à la main pour un mois (vide = retour au calcul automatique)
+window.setDu=(mois,v)=>{const s=DB[cid];if(!s)return;if(!s.du_manuel)s.du_manuel={};
+  if(v===''||v==null||isNaN(parseFloat(v)))delete s.du_manuel[mois];else s.du_manuel[mois]=Math.round(parseFloat(v)*100)/100;
+  if(!Object.keys(s.du_manuel).length)s.du_manuel=null;
+  save(cid,s);updImpayes();renderDetail(document.getElementById('mc'));};
 window.updDebut=(i,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;const c=s.creneaux[i];c.date_debut=v||null;c.premier_mois=v?v.substring(0,7):null;c.nb_cours_premier_mois=null;save(cid,s);updImpayes();renderTB();};
 window.updCPM=(i,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;s.creneaux[i].nb_cours_premier_mois=v===''?null:parseFloat(v);save(cid,s);updImpayes();renderTB();};
 window.togP=i=>{const s=DB[cid];if(!s)return;const p=(s.presences||[])[i];if(!p)return;p.statut=p.statut==='present'?'absent':'present';save(cid,s);renderDetail(document.getElementById('mc'));};
