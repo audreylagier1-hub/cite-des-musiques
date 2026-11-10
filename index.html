@@ -75,6 +75,11 @@ html,body{height:100%;background:var(--bg);font-family:var(--fb);font-size:14px;
 .na{margin:5px 8px 0;border-radius:var(--rad2);background:rgba(240,230,200,.1);border:1px solid rgba(240,230,200,.18);color:var(--cr);font-size:12px;padding:7px 11px;cursor:pointer;display:flex;align-items:center;gap:7px;font-family:var(--fb);width:calc(100% - 16px);transition:all .12s;}
 .na:hover{background:rgba(240,230,200,.2);}
 .sl{flex:1;overflow-y:auto;padding:4px 0;}
+.srch{margin:8px 8px 2px;position:relative;}
+.srch i{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:rgba(240,230,200,.55);font-size:14px;pointer-events:none;}
+.srch input{width:100%;box-sizing:border-box;padding:7px 10px 7px 30px;border-radius:var(--rad2);border:1px solid rgba(240,230,200,.18);background:rgba(240,230,200,.08);color:var(--cr);font-size:12px;font-family:var(--fb);outline:none;}
+.srch input::placeholder{color:rgba(240,230,200,.45);}
+.srch input:focus{border-color:rgba(240,230,200,.45);background:rgba(240,230,200,.12);}
 .si{padding:8px 13px;cursor:pointer;border-bottom:1px solid rgba(240,230,200,.06);display:flex;align-items:center;gap:8px;transition:background .1s;position:relative;}
 .si:hover{background:rgba(240,230,200,.06);}
 .si.act{background:var(--bx);}
@@ -219,6 +224,7 @@ html,body{height:100%;background:var(--bg);font-family:var(--fb);font-size:14px;
     <button class="nb2" onclick="showV('stats')" id="n-stats"><i class="ti ti-chart-bar"></i> Statistiques</button>
     <button class="na" onclick="openAdd()"><i class="ti ti-user-plus"></i> Nouvel élève</button>
   </div>
+  <div class="srch"><i class="ti ti-search"></i><input id="srch" type="search" placeholder="Rechercher un élève…" autocomplete="off" oninput="setRech(this.value)" onkeydown="rechTouche(event)"></div>
   <div class="sl" id="sl"></div>
   <div style="padding:7px;border-top:1px solid rgba(240,230,200,.1);">
     <button class="nb2" onclick="reconf()" style="font-size:10px;padding:6px 10px;"><i class="ti ti-settings"></i> Reconfigurer</button>
@@ -522,41 +528,65 @@ function render(){
   if(cv==='impayes'){document.getElementById('n-imp').classList.add('act');tt.textContent='Impayés';ta.innerHTML='';renderImp(mc);}
   else if(cv==='stats'){document.getElementById('n-stats').classList.add('act');tt.textContent='Tableau de bord';ta.innerHTML='';renderStats(mc);}
   else if(cv==='detail'&&cid&&DB[cid]){tt.textContent=DB[cid].prenom+' '+DB[cid].nom;ta.innerHTML='<button class="btn btn-sm" onclick="exportVCF(\u0027'+cid+'\u0027)" ><i class="ti ti-address-book"></i> Contact</button><button class="btn btn-sm" onclick="openSMS(\u0027'+cid+'\u0027)" ><i class="ti ti-message"></i> SMS</button><button class="btn btn-del btn-sm" onclick="delStudent(\u0027'+cid+'\u0027)"><i class="ti ti-trash"></i> Supprimer</button>';renderDetail(mc);}
-  else{document.getElementById('n-liste').classList.add('act');tt.textContent='Liste des élèves';ta.innerHTML='<button class="btn btn-p btn-sm" onclick="openAdd()"><i class="ti ti-user-plus"></i> Nouvel élève</button><button class="btn btn-sm" onclick="togInactifs()" style="'+(showInactifs?'background:#374151;color:#fff;border-color:#374151;':'')+'"><i class="ti ti-users-group"></i> '+(showInactifs?'Voir actifs':'Anciens élèves')+'</button>';renderListe(mc);}
+  else{document.getElementById('n-liste').classList.add('act');tt.textContent='Liste des élèves';ta.innerHTML='<button class="btn btn-p btn-sm" onclick="openAdd()"><i class="ti ti-user-plus"></i> Nouvel élève</button><button class="btn btn-sm" onclick="togInactifs()" style="'+(showInactifs?'background:#374151;color:#fff;border-color:#374151;':'')+'"><i class="ti ti-users-group"></i> '+(showInactifs?'Voir actifs':'Anciens élèves')+'</button><button class="btn btn-sm" onclick="exportContacts()" title="Télécharger la liste des familles (pour les SMS groupés)"><i class="ti ti-file-spreadsheet"></i> Exporter les contacts</button>';renderListe(mc);}
 }
 
+// Heure du 1er cours de l'élève un jour donné ("HH:MM"), pour trier du plus tôt au plus tard
+function heuresJour(s,j){
+  return (s.creneaux||[]).filter(c=>c.jour===j&&c.debut).map(c=>c.debut.length===4?'0'+c.debut:c.debut).sort();
+}
+function siHtml(id,s,ids,sous){
+  return '<div class="si'+(cid===id?' act':'')+'" onclick="selS(\u0027'+id+'\u0027)"><div class="av" style="background:'+avc(id)+'22;color:'+avc(id)+'">'+gi(s)+'</div><div style="overflow:hidden;flex:1;"><div class="sn">'+s.prenom+' '+(s.nom||'')+'</div><div class="sm">'+sous+'</div></div>'+(ids.has(id)?'<div class="udot"></div>':'')+'</div>';
+}
+let rechercheEleve='';
+// Élèves dont le prénom et/ou le nom correspondent (sans tenir compte des accents ni des majuscules)
+function resultatsRecherche(q){
+  const mots=normTxt(q).split(/\s+/).filter(Boolean);
+  if(!mots.length)return [];
+  return Object.entries(DB).filter(([,s])=>{const t=normTxt((s.prenom||'')+' '+(s.nom||''));return mots.every(m=>t.includes(m));})
+    .sort(([,a],[,b])=>(!!a.inactif-!!b.inactif)||(a.prenom||'').localeCompare(b.prenom||'')||(a.nom||'').localeCompare(b.nom||''));
+}
 function renderSB(){
   const JORD=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+  const ids=new Set(getImpayes().map(x=>x.id));
+  const instr=s=>(s.instruments||[]).slice(0,2).join(', ');
+  let html='';
+  if(rechercheEleve.trim()){
+    const res=resultatsRecherche(rechercheEleve);
+    html='<div style="padding:6px 13px;font-size:11px;color:rgba(240,230,200,.6);">'+(res.length?res.length+' résultat'+(res.length>1?'s':''):'Aucun élève trouvé')+'</div>'+
+      res.map(([id,s])=>{const j=[...new Set((s.creneaux||[]).map(c=>c.jour).filter(Boolean))].join(', ');return siHtml(id,s,ids,(s.inactif?'Ancien élève · ':'')+(j?j+' · ':'')+instr(s));}).join('');
+    document.getElementById('sl').innerHTML=html;updImpayes();return;
+  }
   const groups={};
-  const eleves=sorted();
-  eleves.forEach(([id,s])=>{
+  sorted().forEach(([id,s])=>{
     const jours=[...new Set((s.creneaux||[]).map(c=>c.jour).filter(Boolean))];
-    if(!jours.length){if(!groups['__none__'])groups['__none__']=[];groups['__none__'].push([id,s]);}
+    if(!jours.length){(groups['__none__']=groups['__none__']||[]).push([id,s]);}
     else jours.forEach(j=>{if(!groups[j])groups[j]=[];if(!groups[j].find(([i])=>i===id))groups[j].push([id,s]);});
   });
-  const ids=new Set(getImpayes().map(x=>x.id));
-  let html='';
   JORD.forEach(j=>{
     if(!groups[j]||!groups[j].length)return;
+    // Tri du cours le plus tôt au plus tard (sans heure en fin de liste), puis par prénom
+    groups[j].sort(([,a],[,b])=>((heuresJour(a,j)[0]||'99:99').localeCompare(heuresJour(b,j)[0]||'99:99'))||(a.prenom||'').localeCompare(b.prenom||''));
     const isOpen=(cid&&groups[j].find(([i])=>i===cid))||false;
     html+='<div class="sg-day"><div class="sg-day-hd" onclick="togDay(\u0027'+j+'\u0027)"><i class="ti ti-chevron-'+(isOpen?'down':'right')+'" id="chev-'+j+'"></i><span>'+j+' ('+groups[j].length+')</span></div><div class="sg-day-body" id="day-'+j+'" style="display:'+(isOpen?'block':'none')+';">';
-    groups[j].forEach(([id,s])=>{
-      html+='<div class="si'+(cid===id?' act':'')+'" onclick="selS(\u0027'+id+'\u0027)"><div class="av" style="background:'+avc(id)+'22;color:'+avc(id)+'">'+gi(s)+'</div><div style="overflow:hidden;flex:1;"><div class="sn">'+s.prenom+' '+(s.nom||'')+'</div><div class="sm">'+((s.instruments||[]).slice(0,2).join(', '))+'</div></div>'+(ids.has(id)?'<div class="udot"></div>':'')+'</div>';
-    });
+    groups[j].forEach(([id,s])=>{const h=heuresJour(s,j).join(', ');html+=siHtml(id,s,ids,(h?h+' · ':'')+instr(s));});
     html+='</div></div>';
   });
   if(groups['__none__']&&groups['__none__'].length){
     const isOpen=(cid&&groups['__none__'].find(([i])=>i===cid))||false;
     html+='<div class="sg-day"><div class="sg-day-hd" onclick="togDay(\u0027__none__\u0027)"><i class="ti ti-chevron-'+(isOpen?'down':'right')+'" id="chev-__none__"></i><span>Sans créneau ('+groups['__none__'].length+')</span></div><div class="sg-day-body" id="day-__none__" style="display:'+(isOpen?'block':'none')+';">';
-    groups['__none__'].forEach(([id,s])=>{
-      html+='<div class="si'+(cid===id?' act':'')+'" onclick="selS(\u0027'+id+'\u0027)"><div class="av" style="background:'+avc(id)+'22;color:'+avc(id)+'">'+gi(s)+'</div><div style="overflow:hidden;flex:1;"><div class="sn">'+s.prenom+' '+(s.nom||'')+'</div><div class="sm">'+((s.instruments||[]).slice(0,2).join(', '))+'</div></div>'+(ids.has(id)?'<div class="udot"></div>':'')+'</div>';
-    });
+    groups['__none__'].forEach(([id,s])=>{html+=siHtml(id,s,ids,instr(s));});
     html+='</div></div>';
   }
   document.getElementById('sl').innerHTML=html;
   updImpayes();
 }
-
+window.setRech=v=>{rechercheEleve=v||'';renderSB();};
+// Entrée : ouvre le 1er résultat ; Échap : efface la recherche
+window.rechTouche=e=>{
+  if(e.key==='Enter'){const r=resultatsRecherche(rechercheEleve);if(r.length)window.selS(r[0][0]);}
+  else if(e.key==='Escape'){e.target.value='';window.setRech('');}
+};
 window.togDay=j=>{
   const body=document.getElementById('day-'+j);
   const chev=document.getElementById('chev-'+j);
@@ -1159,13 +1189,52 @@ function renderImp(mc){
 
 function renderStats(mc){
   const e=sorted();const tot=e.length;
-  const tp=e.reduce((a,[,s])=>a+(s.paiements||[]).reduce((b,p)=>b+p.montant,0),0);
+  const tp=Math.round(e.reduce((a,[,s])=>a+(s.paiements||[]).reduce((b,p)=>b+(Number(p.montant)||0),0),0)*100)/100;
   const taux=tot?Math.round(e.reduce((a,[,s])=>{const t=(s.presences||[]).length;return t?a+(s.presences.filter(p=>p.statut==='present').length/t):a;},0)/tot*100):0;
   const imp=getImpayes();
   const iC={};e.forEach(([,s])=>(s.instruments||[]).forEach(i=>iC[i]=(iC[i]||0)+1));
   mc.innerHTML=(imp.length?'<div class="bann" onclick="showV(\u0027impayes\u0027)"><div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="ti ti-alert-circle" style="font-size:18px;color:#fca5a5;"></i></div><div style="flex:1;"><div style="font-family:var(--fd);font-size:13px;color:#fff;font-weight:500;">'+imp.length+' élève'+(imp.length>1?'s':'')+' avec des impayés</div><div style="font-size:10px;color:rgba(255,255,255,.6);">Cliquez pour voir</div></div><i class="ti ti-chevron-right" style="color:rgba(255,255,255,.5);"></i></div>':'')+
   '<div class="sg"><div class="stat"><div class="sv">'+tot+'</div><div class="sl3">Élèves</div></div><div class="stat"><div class="sv">'+tp+' €</div><div class="sl3">Total encaissé</div></div><div class="stat"><div class="sv">'+taux+'%</div><div class="sl3">Présence</div></div></div>'+
-  '<div class="blk"><div class="bh"><i class="ti ti-music" style="color:var(--bx);"></i><span class="bht">Instruments</span></div><div class="bb">'+Object.entries(iC).sort((a,b)=>b[1]-a[1]).map(([i,n])=>'<div style="display:flex;align-items:center;gap:9px;margin-bottom:7px;"><span style="font-size:12px;min-width:75px;">'+i+'</span><div style="flex:1;background:var(--cr2);border-radius:9px;height:7px;overflow:hidden;"><div style="width:'+(tot?Math.round(n/tot*100):0)+'%;background:var(--bx);height:100%;border-radius:9px;"></div></div><span style="font-size:11px;color:var(--txl);min-width:14px;text-align:right;">'+n+'</span></div>').join('')+'</div></div>';
+  '<div class="blk"><div class="bh"><i class="ti ti-music" style="color:var(--bx);"></i><span class="bht">Instruments</span></div><div class="bb">'+Object.entries(iC).sort((a,b)=>b[1]-a[1]).map(([i,n])=>'<div style="display:flex;align-items:center;gap:9px;margin-bottom:7px;"><span style="font-size:12px;min-width:75px;">'+i+'</span><div style="flex:1;background:var(--cr2);border-radius:9px;height:7px;overflow:hidden;"><div style="width:'+(tot?Math.round(n/tot*100):0)+'%;background:var(--bx);height:100%;border-radius:9px;"></div></div><span style="font-size:11px;color:var(--txl);min-width:14px;text-align:right;">'+n+'</span></div>').join('')+'</div></div>'+renderRecettes();
+}
+
+// Recettes par mois : ce qui est encaissé (date de réception) et ce qui est attendu (cotisations dues du mois)
+function renderRecettes(){
+  const tous=Object.values(DB);
+  const ligne=()=>({abo:0,forf:0,insc:0,autre:0,tot:0});
+  const enc={};const avant=ligne(),apres=ligne();
+  ANNEE_MOIS.forEach(m=>enc[m]=ligne());
+  tous.forEach(s=>(s.paiements||[]).forEach(p=>{
+    const v=Number(p.montant)||0;if(!v||!p.date)return;
+    const m=mk(p.date);
+    const L=enc[m]||(m<ANNEE_MOIS[0]?avant:apres);
+    const k=p.type==='forfait'?'forf':p.type==='inscription'?'insc':p.type==='autre'&&!moisDuLibelle(p.label,p.date)?'autre':'abo';
+    L[k]+=v;L.tot+=v;
+  }));
+  // Attendu : mêmes élèves que pour les impayés (ni gratuits, ni anciens élèves)
+  const actifs=tous.filter(s=>!s.gratuit&&!s.inactif);
+  const att={};ANNEE_MOIS.forEach(m=>att[m]={du:0,paye:0,reste:0});
+  actifs.forEach(s=>{const so=getSoldesMois(s);ANNEE_MOIS.forEach(m=>{const x=so[m];if(x){att[m].du+=x.du;att[m].paye+=x.paye;att[m].reste+=x.reste;}});});
+  const today=new Date().toISOString().substring(0,7);
+  const eur=v=>(Math.round(v*100)/100).toLocaleString('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:2})+' €';
+  const td='padding:6px 8px;border-bottom:1px solid var(--cr2);text-align:right;white-space:nowrap;';
+  const th=td+'font-weight:500;color:var(--txm);font-size:10px;text-transform:uppercase;letter-spacing:.03em;';
+  const tr=(lib,L,a,fut)=>'<tr><td style="'+td+'text-align:left;font-weight:500;color:var(--bx3);">'+lib+'</td>'+
+    '<td style="'+td+'font-weight:600;color:var(--bx3);">'+eur(L.tot)+'</td>'+
+    '<td style="'+td+'color:var(--txm);">'+(L.abo?eur(L.abo):'—')+'</td><td style="'+td+'color:var(--txm);">'+(L.forf?eur(L.forf):'—')+'</td><td style="'+td+'color:var(--txm);">'+(L.insc?eur(L.insc):'—')+'</td><td style="'+td+'color:var(--txm);">'+(L.autre?eur(L.autre):'—')+'</td>'+
+    (a?'<td style="'+td+'">'+eur(a.du)+'</td><td style="'+td+(fut?'color:var(--txl);':a.reste>0.009?'color:#DC2626;font-weight:500;':'color:#166534;')+'">'+(fut?'à venir':a.reste>0.009?eur(a.reste):'✓')+'</td>':'<td style="'+td+'">—</td><td style="'+td+'">—</td>')+'</tr>';
+  const tot=ligne();[avant,apres,...ANNEE_MOIS.map(m=>enc[m])].forEach(L=>Object.keys(tot).forEach(k=>tot[k]+=L[k]));
+  const totDu=ANNEE_MOIS.reduce((a,m)=>a+att[m].du,0);
+  const totReste=ANNEE_MOIS.filter(m=>m<=today).reduce((a,m)=>a+att[m].reste,0);
+  return '<div class="blk"><div class="bh"><i class="ti ti-coins" style="color:var(--bx);"></i><span class="bht">Recettes par mois</span></div><div class="bb">'+
+    '<div style="font-size:11px;color:var(--txm);margin-bottom:8px;"><b>Encaissé</b> : argent reçu dans le mois (date de réception). <b>Attendu</b> : cotisations mensuelles dues pour le mois ; <b>Reste</b> : ce qui n\u0027est pas encore réglé pour ce mois.</div>'+
+    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'+
+    '<tr><th style="'+th+'text-align:left;">Mois</th><th style="'+th+'">Encaissé</th><th style="'+th+'">Cotisations</th><th style="'+th+'">Forfaits</th><th style="'+th+'">Inscriptions</th><th style="'+th+'">Autres</th><th style="'+th+'">Attendu</th><th style="'+th+'">Reste</th></tr>'+
+    (avant.tot?tr('Avant sept. (avances)',avant,null):'')+
+    ANNEE_MOIS.map(m=>tr(MS[parseInt(m.substring(5,7))-1]+' '+m.substring(0,4),enc[m],att[m],m>today)).join('')+
+    (apres.tot?tr('Après juin',apres,null):'')+
+    '<tr style="background:var(--cr2);"><td style="'+td+'text-align:left;font-weight:600;">Total année</td><td style="'+td+'font-weight:600;">'+eur(tot.tot)+'</td><td style="'+td+'">'+eur(tot.abo)+'</td><td style="'+td+'">'+eur(tot.forf)+'</td><td style="'+td+'">'+eur(tot.insc)+'</td><td style="'+td+'">'+eur(tot.autre)+'</td><td style="'+td+'">'+eur(totDu)+'</td><td style="'+td+(totReste>0.009?'color:#DC2626;font-weight:600;':'')+'">'+eur(totReste)+'</td></tr>'+
+    '</table></div></div></div>';
 }
 
 // ── ACTIONS ──
@@ -1315,6 +1384,28 @@ function exportVCF(id){
 }
 // Les boutons de la page (onclick="...") n'ont accès qu'aux fonctions attachées à window
 window.exportVCF=exportVCF;
+
+// Liste des familles (élèves actuels) au format CSV : téléphones, mails, créneaux et impayés
+window.exportContacts=()=>{
+  const imp={};getImpayes().forEach(x=>imp[x.id]=x);
+  const cell=v=>{v=(v==null?'':String(v));return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const tel=t=>(t||'').replace(/[^\d+]/g,'');
+  const lignes=[['id','Prénom','Nom','Créneaux','Tél maman','Tél papa','Tél musicien','Mail maman','Mail papa','Mail musicien','Impayé','Mois impayés','Montant impayé']];
+  Object.entries(DB).filter(([,s])=>!s.inactif).sort(([,a],[,b])=>(a.nom||'').localeCompare(b.nom||'')||(a.prenom||'').localeCompare(b.prenom||'')).forEach(([id,s])=>{
+    const x=imp[id];
+    const mois=x?x.moisImpayes.map(m=>MN[parseInt(m.mois.substring(5,7))-1]+' '+m.mois.substring(0,4)).join(', '):'';
+    const montant=x?x.moisImpayes.reduce((a,m)=>a+m.reste,0)+x.forfaitImpayes.reduce((a,f)=>a+f.prix,0)+(x.hi?40:0):0;
+    lignes.push([id,s.prenom||'',s.nom||'',(s.creneaux||[]).map(c=>(c.jour||'')+' '+(c.debut||'')+(c.matiere?' '+c.matiere:'')).join(' / '),
+      tel(s.tel_maman),tel(s.tel_papa),tel(s.tel_musicien),s.email_maman||'',s.email_papa||'',s.email_musicien||'',
+      x?'oui':'non',mois+(x&&x.hi?(mois?', ':'')+'inscription':''),montant?String(Math.round(montant*100)/100).replace('.',','):'']);
+  });
+  const csv='\ufeff'+lignes.map(l=>l.map(cell).join(';')).join('\r\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
+  a.download='contacts-cite-des-musiques-'+new Date().toISOString().substring(0,10)+'.csv';
+  document.body.appendChild(a);a.click();a.remove();
+  toast((lignes.length-1)+' familles exportées');
+};
 
 // ── SMS ──
 function getNums(s){
