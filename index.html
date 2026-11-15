@@ -528,7 +528,7 @@ function render(){
   if(cv==='impayes'){document.getElementById('n-imp').classList.add('act');tt.textContent='Impayés';ta.innerHTML='';renderImp(mc);}
   else if(cv==='stats'){document.getElementById('n-stats').classList.add('act');tt.textContent='Tableau de bord';ta.innerHTML='';renderStats(mc);}
   else if(cv==='detail'&&cid&&DB[cid]){tt.textContent=DB[cid].prenom+' '+DB[cid].nom;ta.innerHTML='<button class="btn btn-sm" onclick="exportVCF(\u0027'+cid+'\u0027)" ><i class="ti ti-address-book"></i> Contact</button><button class="btn btn-sm" onclick="openSMS(\u0027'+cid+'\u0027)" ><i class="ti ti-message"></i> SMS</button><button class="btn btn-del btn-sm" onclick="delStudent(\u0027'+cid+'\u0027)"><i class="ti ti-trash"></i> Supprimer</button>';renderDetail(mc);}
-  else{document.getElementById('n-liste').classList.add('act');tt.textContent='Liste des élèves';ta.innerHTML='<button class="btn btn-p btn-sm" onclick="openAdd()"><i class="ti ti-user-plus"></i> Nouvel élève</button><button class="btn btn-sm" onclick="togInactifs()" style="'+(showInactifs?'background:#374151;color:#fff;border-color:#374151;':'')+'"><i class="ti ti-users-group"></i> '+(showInactifs?'Voir actifs':'Anciens élèves')+'</button><button class="btn btn-sm" onclick="exportContacts()" title="Télécharger la liste des familles (pour les SMS groupés)"><i class="ti ti-file-spreadsheet"></i> Exporter les contacts</button>';renderListe(mc);}
+  else{document.getElementById('n-liste').classList.add('act');tt.textContent='Liste des élèves';ta.innerHTML='<button class="btn btn-p btn-sm" onclick="openAdd()"><i class="ti ti-user-plus"></i> Nouvel élève</button><button class="btn btn-sm" onclick="togInactifs()" style="'+(showInactifs?'background:#374151;color:#fff;border-color:#374151;':'')+'"><i class="ti ti-users-group"></i> '+(showInactifs?'Voir actifs':'Anciens élèves')+'</button><button class="btn btn-sm" onclick="openFermeture()" title="Jour férié, vacances… : noter « École fermée » pour tous les élèves de ce jour"><i class="ti ti-calendar-off"></i> Jour de fermeture</button><button class="btn btn-sm" onclick="exportContacts()" title="Télécharger la liste des familles (pour les SMS groupés)"><i class="ti ti-file-spreadsheet"></i> Exporter les contacts</button>';renderListe(mc);}
 }
 
 // Heure du 1er cours de l'élève un jour donné ("HH:MM"), pour trier du plus tôt au plus tard
@@ -601,7 +601,7 @@ function renderListe(mc){
   if(!e.length){mc.innerHTML='<div class="empty"><i class="ti ti-user-off"></i>Aucun élève.</div>';return;}
   const ids=new Set(getImpayes().map(x=>x.id));
   mc.innerHTML=e.map(([id,s])=>{
-    const pr=(s.presences||[]).filter(p=>p.statut==='present').length,tot=(s.presences||[]).length;
+    const pr=(s.presences||[]).filter(p=>p.statut==='present').length,tot=(s.presences||[]).filter(p=>p.statut!=='ferme').length;
     const tp=(s.paiements||[]).filter(p=>p.type!=='inscription').reduce((a,p)=>a+p.montant,0);
     const col=avc(id);const hu=ids.has(id);
     return'<div class="ec'+(hu?' hu':'')+'" onclick="selS(\u0027'+id+'\u0027)"><div style="height:4px;background:'+(hu?'#DC2626':col)+';"></div><div style="padding:11px 14px;display:flex;align-items:center;gap:12px;"><div class="av" style="width:38px;height:38px;font-size:12px;background:'+col+'22;color:'+col+'">'+gi(s)+'</div><div style="flex:1;overflow:hidden;"><div style="font-weight:500;font-size:13px;font-family:var(--fd);color:var(--bx3);display:flex;align-items:center;gap:7px;">'+s.prenom+' '+s.nom+(s.inactif?'<span style="background:#374151;color:#fff;font-size:10px;padding:2px 7px;border-radius:9px;font-weight:500;">⏸ Inactif</span>':'')+(hu?'<span class="ubadge"><i class="ti ti-alert-circle" style="font-size:10px;"></i> Impayé</span>':'')+(s.gratuit?'<span style="background:#166534;color:#fff;font-size:10px;padding:2px 7px;border-radius:9px;font-weight:500;">⭐ Gratuit</span>':'')+'</div><div style="font-size:11px;color:var(--txm);margin-top:2px;">'+(s.instruments||[]).join(' · ')+' — '+(s.niveau||'—')+' — <span style="color:'+col+';font-weight:500;">'+(s.creneaux&&s.creneaux.length?[...new Set(s.creneaux.map(c=>c.type_creneau||'—'))].join(', '):'—')+'</span></div></div><div style="text-align:right;padding:0 11px;border-right:1px solid var(--cr2);"><div style="font-size:10px;color:var(--txl);">Présences</div><div style="font-size:13px;font-weight:500;color:var(--bx3);font-family:var(--fd);">'+pr+'/'+tot+'</div></div><div style="text-align:right;padding:0 7px;"><div style="font-size:10px;color:var(--txl);">Encaissé</div><div style="font-size:13px;font-weight:500;color:var(--bx3);font-family:var(--fd);">'+tp+' €</div></div><i class="ti ti-chevron-right" style="color:var(--cr3);"></i></div></div>';
@@ -739,10 +739,10 @@ function renderTB(){
     tb.innerHTML=html;
 
   } else if(ct==='presences'){
-    const pr=pres.filter(p=>p.statut==='present').length,ab=pres.filter(p=>p.statut==='absent').length;
+    const pr=pres.filter(p=>p.statut==='present').length,ab=pres.filter(p=>p.statut==='absent').length,nbF=pres.filter(p=>p.statut==='ferme').length;
     const hFC=hasForColl(s),hFI=hasForIndiv(s);
     const hasForf=hFC||hFI;
-    tb.innerHTML='<div class="sg"><div class="stat"><div class="sv">'+pres.length+'</div><div class="sl3">Total</div></div><div class="stat so"><div class="sv o">'+pr+'</div><div class="sl3">Présences</div></div><div class="stat sw"><div class="sv w">'+ab+'</div><div class="sl3">Absences</div></div></div>'+
+    tb.innerHTML='<div class="sg"><div class="stat"><div class="sv">'+(pres.length-nbF)+'</div><div class="sl3">Total'+(nbF?' (+'+nbF+' fermeture'+(nbF>1?'s':'')+')':'')+'</div></div><div class="stat so"><div class="sv o">'+pr+'</div><div class="sl3">Présences</div></div><div class="stat sw"><div class="sv w">'+ab+'</div><div class="sl3">Absences</div></div></div>'+
     '<div class="blk"><div class="bh"><i class="ti ti-calendar-event" style="color:var(--bx);"></i><span class="bht">Historique des séances</span></div><div class="bb">'+
     (hasForf?'<div style="font-size:11px;color:var(--txm);margin-bottom:8px;background:#FFF9C4;padding:6px 10px;border-radius:var(--rad3);border:1px solid #F9A825;"><i class="ti ti-info-circle"></i> Cochez les cases forfait selon les cours que compte chaque séance.</div>':'')+
     (pres.length?pres.slice().reverse().map((p,ri)=>{
@@ -750,12 +750,12 @@ function renderTB(){
       let forfCols='';
       if(hFC) forfCols+='<label style="font-size:10px;display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap;"><input type="checkbox" '+(p.forfait_collectif===true?'checked':'')+' onchange="togPF('+ri2+',\u0027collectif\u0027,this.checked)" style="width:12px;height:12px;"> <span style="color:var(--bx);">Coll.</span></label>';
       if(hFI) forfCols+='<label style="font-size:10px;display:flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap;"><input type="checkbox" '+(p.forfait_individuel===true?'checked':'')+' onchange="togPF('+ri2+',\u0027individuel\u0027,this.checked)" style="width:12px;height:12px;"> <span style="color:#6A1B9A;">Indiv.</span></label>';
-      return'<div class="pr"><div class="mdot" style="background:'+col+';"></div><span style="font-size:12px;font-weight:500;color:var(--bx3);min-width:95px;">'+(()=>{const jn=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];const dt=new Date(p.date+"T12:00:00");return'<span style="color:var(--txm);margin-right:4px;">'+jn[dt.getDay()]+'</span>'+fd(p.date);})()+ '</span><span style="font-size:11px;color:var(--txl);flex:1;">'+MS[idx]+' '+p.date.substring(0,4)+'</span>'+forfCols+'<span style="font-size:11px;padding:2px 8px;border-radius:9px;font-weight:500;background:'+(p.statut==='present'?'#DCFCE7':'#FEF2F2')+';color:'+(p.statut==='present'?'#166534':'#991B1B')+';">'+(p.statut==='present'?'Présent·e':'Absent·e')+'</span><button class="btn btn-sm" style="margin-left:3px;" onclick="togP('+ri2+')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-del" onclick="rmPres('+ri2+')"><i class="ti ti-x"></i></button></div>';
+      return'<div class="pr"><div class="mdot" style="background:'+col+';"></div><span style="font-size:12px;font-weight:500;color:var(--bx3);min-width:95px;">'+(()=>{const jn=["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"];const dt=new Date(p.date+"T12:00:00");return'<span style="color:var(--txm);margin-right:4px;">'+jn[dt.getDay()]+'</span>'+fd(p.date);})()+ '</span><span style="font-size:11px;color:var(--txl);flex:1;">'+MS[idx]+' '+p.date.substring(0,4)+'</span>'+forfCols+'<span style="font-size:11px;padding:2px 8px;border-radius:9px;font-weight:500;background:'+(p.statut==='present'?'#DCFCE7':p.statut==='ferme'?'#E5E7EB':'#FEF2F2')+';color:'+(p.statut==='present'?'#166534':p.statut==='ferme'?'#374151':'#991B1B')+';">'+(p.statut==='present'?'Présent·e':p.statut==='ferme'?'École fermée'+(p.motif?' ('+p.motif+')':''):'Absent·e')+'</span><button class="btn btn-sm" style="margin-left:3px;" onclick="togP('+ri2+')"><i class="ti ti-refresh"></i></button><button class="btn btn-sm btn-del" onclick="rmPres('+ri2+')"><i class="ti ti-x"></i></button></div>';
     }).join(''):'<div style="color:var(--txl);font-size:12px;padding:6px 0;">Aucune séance.</div>')+
     '<hr class="sep"><div class="sl2">Ajouter une séance</div>'+
     '<div style="display:flex;gap:7px;align-items:flex-end;flex-wrap:wrap;">'+
     '<div class="field" style="flex:1;min-width:110px;"><label>Date</label><input type="date" id="np-d" value="'+new Date().toISOString().split('T')[0]+'"></div>'+
-    '<div class="field"><label>Statut</label><select id="np-s"><option value="present">Présent·e</option><option value="absent">Absent·e</option></select></div>'+
+    '<div class="field"><label>Statut</label><select id="np-s"><option value="present">Présent·e</option><option value="absent">Absent·e</option><option value="ferme">École fermée</option></select></div>'+
     (hFC?'<div class="field"><label style="color:var(--bx);">Forfait Coll. ?</label><select id="np-fc"><option value="false">Non</option><option value="true">Oui</option></select></div>':'')+
     (hFI?'<div class="field"><label style="color:#6A1B9A;">Forfait Indiv. ?</label><select id="np-fi"><option value="false">Non</option><option value="true">Oui</option></select></div>':'')+
     '<button class="btn btn-p btn-sm" onclick="addPres()"><i class="ti ti-plus"></i> Ajouter</button></div></div></div>';
@@ -1190,7 +1190,7 @@ function renderImp(mc){
 function renderStats(mc){
   const e=sorted();const tot=e.length;
   const tp=Math.round(e.reduce((a,[,s])=>a+(s.paiements||[]).reduce((b,p)=>b+(Number(p.montant)||0),0),0)*100)/100;
-  const taux=tot?Math.round(e.reduce((a,[,s])=>{const t=(s.presences||[]).length;return t?a+(s.presences.filter(p=>p.statut==='present').length/t):a;},0)/tot*100):0;
+  const taux=tot?Math.round(e.reduce((a,[,s])=>{const t=(s.presences||[]).filter(p=>p.statut!=='ferme').length;return t?a+(s.presences.filter(p=>p.statut==='present').length/t):a;},0)/tot*100):0;
   const imp=getImpayes();
   const iC={};e.forEach(([,s])=>(s.instruments||[]).forEach(i=>iC[i]=(iC[i]||0)+1));
   mc.innerHTML=(imp.length?'<div class="bann" onclick="showV(\u0027impayes\u0027)"><div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="ti ti-alert-circle" style="font-size:18px;color:#fca5a5;"></i></div><div style="flex:1;"><div style="font-family:var(--fd);font-size:13px;color:#fff;font-weight:500;">'+imp.length+' élève'+(imp.length>1?'s':'')+' avec des impayés</div><div style="font-size:10px;color:rgba(255,255,255,.6);">Cliquez pour voir</div></div><i class="ti ti-chevron-right" style="color:rgba(255,255,255,.5);"></i></div>':'')+
@@ -1259,7 +1259,7 @@ window.setDu=(mois,v)=>{const s=DB[cid];if(!s)return;if(!s.du_manuel)s.du_manuel
   save(cid,s);updImpayes();renderDetail(document.getElementById('mc'));};
 window.updDebut=(i,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;const c=s.creneaux[i];c.date_debut=v||null;c.premier_mois=v?v.substring(0,7):null;c.nb_cours_premier_mois=null;save(cid,s);updImpayes();renderTB();};
 window.updCPM=(i,v)=>{const s=DB[cid];if(!s||!s.creneaux||!s.creneaux[i])return;s.creneaux[i].nb_cours_premier_mois=v===''?null:parseFloat(v);save(cid,s);updImpayes();renderTB();};
-window.togP=i=>{const s=DB[cid];if(!s)return;const p=(s.presences||[])[i];if(!p)return;p.statut=p.statut==='present'?'absent':'present';save(cid,s);renderDetail(document.getElementById('mc'));};
+window.togP=i=>{const s=DB[cid];if(!s)return;const p=(s.presences||[])[i];if(!p)return;p.statut=p.statut==='present'?'absent':'present';delete p.motif;save(cid,s);renderDetail(document.getElementById('mc'));};
 // togPF : bascule forfait_collectif ou forfait_individuel selon le type
 window.togPF=(i,type,v)=>{const s=DB[cid];if(!s)return;const p=(s.presences||[])[i];if(!p)return;if(type==='collectif')p.forfait_collectif=v;else p.forfait_individuel=v;save(cid,s);updImpayes();renderDetail(document.getElementById('mc'));};
 window.rmPres=i=>{const s=DB[cid];if(!s)return;(s.presences||[]).splice(i,1);save(cid,s);renderDetail(document.getElementById('mc'));};
@@ -1432,6 +1432,57 @@ function openSMS(id){
   document.getElementById('mw').classList.add('op');
 }
 window.openSMS=openSMS;
+
+// ── JOUR DE FERMETURE (férié, vacances…) ──
+// Note « École fermée » à cette date pour tous les élèves actuels ayant un créneau ce jour de la semaine
+const JOURS_JS=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+function elevesDuJour(d){
+  if(!d)return [];
+  const j=JOURS_JS[new Date(d+'T12:00:00').getDay()];
+  return Object.entries(DB).filter(([,s])=>!s.inactif&&(s.creneaux||[]).some(c=>c.jour===j));
+}
+window.openFermeture=()=>{
+  document.getElementById('mi').innerHTML=
+    '<div class="mo-t"><i class="ti ti-calendar-off" style="color:var(--bx)"></i> Jour de fermeture</div>'+
+    '<div style="font-size:12px;color:var(--txm);margin-bottom:10px;">Indique « École fermée » à cette date pour tous les élèves qui ont cours ce jour-là. Ce n\u0027est pas une absence et cela ne décompte aucun cours de forfait.</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;"><div class="field" style="flex:1;min-width:140px;"><label>Date</label><input type="date" id="ferm-d" oninput="majFermeture()"></div>'+
+    '<div class="field" style="flex:1;min-width:140px;"><label>Motif</label><input id="ferm-m" value="Férié"></div></div>'+
+    '<div id="ferm-info" style="font-size:12px;margin:10px 0;color:var(--txm);">Choisissez une date.</div>'+
+    '<div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;"><button class="btn btn-sm btn-del" id="ferm-annul" onclick="annulerFermeture()" style="display:none;">Retirer cette fermeture</button><button class="btn btn-sm" onclick="closeM()">Fermer</button><button class="btn btn-p btn-sm" id="ferm-ok" onclick="enregistrerFermeture()" disabled><i class="ti ti-check"></i> Enregistrer</button></div>';
+  document.getElementById('mw').classList.add('op');
+};
+window.majFermeture=()=>{
+  const d=document.getElementById('ferm-d').value;const el=elevesDuJour(d);
+  const deja=el.filter(([,s])=>(s.presences||[]).some(p=>p.date===d)).length;
+  const fermes=Object.values(DB).filter(s=>(s.presences||[]).some(p=>p.date===d&&p.statut==='ferme')).length;
+  const j=d?JOURS_JS[new Date(d+'T12:00:00').getDay()]:'';
+  document.getElementById('ferm-info').innerHTML=!d?'Choisissez une date.':
+    '<b>'+el.length+' élève'+(el.length>1?'s</b> ont':'</b> a')+' cours le '+j.toLowerCase()+'.'+
+    (deja?'<br>'+deja+' ont déjà une séance notée ce jour-là : elle ne sera pas modifiée.':'')+
+    (el.length?'<div style="max-height:140px;overflow:auto;margin-top:6px;font-size:11px;">'+el.map(([,s])=>s.prenom+' '+(s.nom||'')).sort().join(', ')+'</div>':'');
+  const ok=document.getElementById('ferm-ok');ok.disabled=!(el.length-deja>0);ok.innerHTML='<i class="ti ti-check"></i> Enregistrer pour '+(el.length-deja)+' élève'+(el.length-deja>1?'s':'');
+  const an=document.getElementById('ferm-annul');an.style.display=fermes?'inline-flex':'none';an.textContent='Retirer cette fermeture ('+fermes+')';
+};
+window.enregistrerFermeture=async()=>{
+  const d=document.getElementById('ferm-d').value;const motif=(document.getElementById('ferm-m').value||'').trim();
+  const cibles=elevesDuJour(d).filter(([,s])=>!(s.presences||[]).some(p=>p.date===d));
+  if(!cibles.length)return;
+  document.getElementById('ferm-ok').disabled=true;
+  for(const [id,s] of cibles){
+    if(!s.presences)s.presences=[];
+    const e={date:d,statut:'ferme'};if(motif)e.motif=motif;
+    s.presences.push(e);s.presences.sort((a,b)=>a.date.localeCompare(b.date));
+    await save(id,s);
+  }
+  window.closeM();render();toast('École fermée le '+fd(d)+' : '+cibles.length+' élève'+(cibles.length>1?'s':''));
+};
+window.annulerFermeture=async()=>{
+  const d=document.getElementById('ferm-d').value;
+  const cibles=Object.entries(DB).filter(([,s])=>(s.presences||[]).some(p=>p.date===d&&p.statut==='ferme'));
+  if(!cibles.length||!confirm('Retirer « École fermée » du '+fd(d)+' pour '+cibles.length+' élève(s) ?'))return;
+  for(const [id,s] of cibles){s.presences=s.presences.filter(p=>!(p.date===d&&p.statut==='ferme'));await save(id,s);}
+  window.closeM();render();toast('Fermeture du '+fd(d)+' retirée');
+};
 window.closeM=()=>document.getElementById('mw').classList.remove('op');
 // Fermer la fenêtre en cliquant à côté
 document.getElementById('mw').addEventListener('click',e=>{if(e.target.id==='mw')window.closeM();});
